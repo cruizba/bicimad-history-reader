@@ -1,3 +1,4 @@
+"use strict"
 const program = require('commander');
 import * as fs from 'fs';
 import * as readline from 'readline';
@@ -15,9 +16,14 @@ function createDemmandMatrices(startDate, endDate, filesDirectory) { return new 
     let daysCounterWeekend = 0;
     let datesMapWeek = new Map();
     let datesMapWeekend = new Map();
+    let counterRegister_R = 0;
+    let velocityCyclingAverage_R = 0;
 
-    let numFiles = files.length;
+    let numFiles = files.length-1;
     for(let file of files) {
+        if(file === ".DS_Store"){
+            continue;
+        }
         //Check file date
         let date = file.split("_")[0];
         let year = date.substring(0, 4);
@@ -25,10 +31,6 @@ function createDemmandMatrices(startDate, endDate, filesDirectory) { return new 
         let fileDate = new Date(`${year}/${month}/01`);
         let tempStartDate = new Date(`${startDate.getFullYear()}/${startDate.getMonth() + 1}/${startDate.getDate()}`);
         let tempEndDate = new Date(`${endDate.getFullYear()}/${endDate.getMonth() + 1}/${endDate.getDate()}`);
-        if(fileDate < tempStartDate || fileDate > tempEndDate) {
-            numFiles--;
-            continue;
-        }
         console.log(file);
         let inputStream = fs.createReadStream(`${filesDirectory}/${file}`);
         let outputStream = new Stream;
@@ -46,6 +48,8 @@ function createDemmandMatrices(startDate, endDate, filesDirectory) { return new 
                         daysCounterWeekend += 1;
                     }
                     addValueToMatrix(route, matricesWeekend, hour);
+                    velocityCyclingAverage_R += addVelocity(route, velocityCyclingAverage_R);
+                    counterRegister_R = addCounterRegister(route, counterRegister_R);
                 }
                 else {
                     if(datesMapWeek.get(dateString) === undefined) {
@@ -53,6 +57,8 @@ function createDemmandMatrices(startDate, endDate, filesDirectory) { return new 
                         daysCounterWeek += 1;
                     }
                     addValueToMatrix(route, matricesWeek, hour);
+                    velocityCyclingAverage_R += addVelocity(route, velocityCyclingAverage_R);
+                    counterRegister_R = addCounterRegister(route, counterRegister_R);
                 }
             }
             else {
@@ -63,11 +69,35 @@ function createDemmandMatrices(startDate, endDate, filesDirectory) { return new 
             counter++;
             console.log(`File ${file} readed`);
             if(counter === numFiles) {
-                resolve({matricesWeek, matricesWeekend, daysCounterWeek, daysCounterWeekend});
+                velocityCyclingAverage_R = velocityCyclingAverage_R / counterRegister_R;
+                resolve({matricesWeek, matricesWeekend, daysCounterWeek, daysCounterWeekend, velocityCyclingAverage_R});
             }
         })
     }
 })}
+
+function addCounterRegister(route, counterRegister_R){
+    counterRegister_R +=1;
+    return counterRegister_R;
+}
+
+function addVelocity(route, velocityCyclingAverage_R){
+    let track = route.track;
+    if(track !== undefined){
+        return calculateVelocity(track);
+    }else{
+        return 5;
+    }
+}
+
+function calculateVelocity(track){
+    let velocity = 0;
+    let featuresList = track.features;
+    for (let i=0; i < featuresList.length; i++){
+        velocity += featuresList[i].properties.speed;
+    }
+    return (velocity / featuresList.length);
+}
 
 function createAverageMatrices(matrices, totalDays) {
     let averageMatrices = initMatrices();
@@ -161,6 +191,18 @@ function createProbabilityMatrices(matrices, totalUsersMatrix) {
     return probabilityMatrix;
 }
 
+function createTotalStationsAverageMatrix(matrices){
+    let sumHours = Array.apply(null, Array(24)).map(Number.prototype.valueOf,0);
+    for(let i=1 ; i<=numStations ; i++){
+        for(let j=1 ; j<=numStations ; j++){
+            for(let h=0; h<=23 ; h++){
+                sumHours[h] += matrices[i][j][h];
+            }
+        }
+    }
+    return sumHours;
+}
+
 async function main() {
     program
         .version('0.0.1')
@@ -190,6 +232,8 @@ async function main() {
         let result = await createDemmandMatrices(dateRange.start, dateRange.end, filesDirectory);
         result.averageMatricesWeek = createAverageMatrices(result.matricesWeek, result.daysCounterWeek);
         result.averageMatricesWeekend = createAverageMatrices(result.matricesWeekend, result.daysCounterWeekend);
+        result.averageAllStationsMatrixWeek_R = createTotalStationsAverageMatrix(result.averageMatricesWeek)
+        result.averageAllStationsMatrixWeekend_R = createTotalStationsAverageMatrix(result.averageMatricesWeekend)
         result.totalUsersStationByInstantWeek = matrixUsersStationByInstant(result.matricesWeek);
         result.totalUsersStationByInstantWeekend = matrixUsersStationByInstant(result.matricesWeekend);
         result.probabilityMatrixWeek = createProbabilityMatrices(result.matricesWeek, result.totalUsersStationByInstantWeek);
